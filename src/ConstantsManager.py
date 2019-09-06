@@ -1,7 +1,7 @@
 import json
 
 
-class ResourceManager:
+class ConstantsManager:
 
     def __init__(self, strings_file="resources/strings.json",
                  numbers_file="resources/numbers.json", subcategory=None):

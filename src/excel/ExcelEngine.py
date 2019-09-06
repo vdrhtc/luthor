@@ -67,7 +67,7 @@ class ExcelEngine:
                         mapping = cell_field.fill_mapping(field_value)
                     except ValueError as e:
                         raise ValueError(
-                            "Failed to fill field %s on %s: %s" % (field_name, sheet_id, e.message))
+                            "Failed to fill field %s on %s: %s" % (field_name, sheet_id, str(e)))
                     sheet_mapping.update(mapping)
 
             total_mapping[sheet_id] = sheet_mapping

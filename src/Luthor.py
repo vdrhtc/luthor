@@ -1,14 +1,16 @@
 import json
 from enum import Enum, auto
 
-from telegram import (ReplyKeyboardMarkup, ReplyKeyboardRemove)
+from telegram import (ReplyKeyboardMarkup)
 from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, RegexHandler,
                           ConversationHandler)
 
 from loggingserver import LoggingServer
 
+from src.ConstantsManager import ConstantsManager
 from src.excel.ExcelEngine import ExcelEngine
-from src.managers.P13001Manager import P13001Manager
+from src.managers.SubmissionManager import FormManagerModes
+from src.establishers.ErgulEstablisher import ErgulEstablisher
 
 import logging
 
@@ -17,39 +19,51 @@ logging.basicConfig(
     level=logging.INFO)
 
 
-class LuthorStates(Enum):
-    QUESTION = auto()
-    FORM = auto()
-    EDIT = auto()
-
-
-available_forms = ["P13001", "Документ", "Жопа"]
-
-form_manager_classes = {"P13001": P13001Manager,
-                        "Документ": P13001Manager,
-                        "Жопа": P13001Manager}
+class LuthorStates(
+    Enum):  # User needs to make a submission -- send a pack of documents to a certain authority
+    # first we provide a list of possible submissions (on start)
+    SUBMISSION = auto()  # initial question (does the user know at all which documents he needs for his submission?)
+    A_HOW_TO_HELP = auto()
+    # FORM_ESTABLISHMENT = auto()  # he doesn't, then launch form-specific manager to establish necessary forms and sheets
+    BUILDING_SUBMISSION = auto()
 
 
 class Luthor:
-    USER_FORM_MANAGERS_STUB = {form_id: None for form_id in available_forms}
 
     def __init__(self, xl_engine, updater):
         self._xl_engine = xl_engine
         self._updater = updater
         self._logger = LoggingServer.getInstance("luthor")
+        self._cm = ConstantsManager(subcategory="luthor")
 
-        self._form_managers = {}
-        self._active_managers = {}
+        self._available_submission_classes = {"Изменения в ЕРГЮЛ": ErgulEstablisher,
+                                              "Заявление на Шенген": ErgulEstablisher}
+        self._submissions_regexp = "^(" + "|".join(self._available_submission_classes.keys()) + ")$"
+
         self.add_handlers()
+
+        self._submission_managers = {}
+        self._active_managers = {}
+
+        Luthor.USER_FORM_MANAGERS_STUB = {form_id: None for form_id in
+                                          self._available_submission_classes}
 
     def add_handlers(self):
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', self.on_start)],
 
             states={
-                LuthorStates.QUESTION: [MessageHandler(Filters.text, self.on_question)],
-                LuthorStates.FORM: [RegexHandler('^(P13001|Документ|Жопа)$', self.on_form)],
-                LuthorStates.EDIT: [MessageHandler(Filters.text, self.on_edit)]
+                LuthorStates.SUBMISSION: [
+                    RegexHandler(self._submissions_regexp, self.on_sumbission)],
+                LuthorStates.A_HOW_TO_HELP: [
+                    RegexHandler(
+                        "^(" + self._cm.get_string("help_submit") + "|" + self._cm.get_string(
+                            "help_fill") + ")", self.on_a_how_to_help)
+                ],
+                LuthorStates.FORM_ESTABLISHMENT: [
+                    MessageHandler(Filters.text, self.on_form_establishment)],
+                LuthorStates.BUILDING_SUBMISSION: [
+                    MessageHandler(Filters.text, self.on_building_submission)],
             },
 
             fallbacks=[CommandHandler('cancel', self.on_cancel)]
@@ -62,35 +76,49 @@ class Luthor:
     def launch(self):
         self._updater.start_polling()
 
-    def on_start(self, bot, update):
-        update.message.reply_text("Задай вопрос.")
-        return LuthorStates.QUESTION
+    def on_start(self, bot, update):  # какая форма?
 
-    def on_question(self, bot, update):
-        reply_keyboard = [['P13001', 'Документ', 'Жопа']]
+        reply_keyboard = [[key for key in self._available_submission_classes.keys()]]
 
-        update.message.reply_text('Не смей играть в игры, в которых ничего не смыслишь.',
+        update.message.reply_text(self._cm.get_string("hi"),
                                   reply_markup=ReplyKeyboardMarkup(reply_keyboard,
                                                                    one_time_keyboard=True))
+        self._submission_managers[
+            update.message.from_user.id] = Luthor.USER_FORM_MANAGERS_STUB.copy()
 
-        self._form_managers[update.message.from_user.id] = Luthor.USER_FORM_MANAGERS_STUB.copy()
+        return LuthorStates.SUBMISSION
 
-        return LuthorStates.FORM
+    def on_sumbission(self, bot, update):  #
 
-    def on_form(self, bot, update):
-        form_id = update.message.text
+        submission_id = update.message.text
         user_id = update.message.from_user.id
-        if self._form_managers[user_id][form_id] is None:
-            manager = form_manager_classes[form_id](user_id, self._xl_engine)
-            self._form_managers[user_id][form_id] = manager
+        if self._submission_managers[user_id][submission_id] is None:
+            manager = self._available_submission_classes[submission_id](user_id, self._xl_engine)
+            self._submission_managers[user_id][submission_id] = manager
         else:
-            manager = self._form_managers[user_id][form_id]
+            manager = self._submission_managers[user_id][submission_id]
         self._active_managers[user_id] = manager
-        update.message.reply_text("Перенаправляю на специалиста.")
-        manager.handle_update(update)
-        return LuthorStates.EDIT
 
-    def on_edit(self, bot, update):
+        manager.handle_update(update)
+
+
+
+        return LuthorStates.BUILDING_SUBMISSION
+
+    def on_a_how_to_help(self, bot, update):
+        # update.message.reply_text("Хорошо. Я задам несколько вопросов.")
+
+        answer = update.message.text
+        user_id = update.message.from_user.id
+
+        if answer == self._cm.get_string("help_sumbit"):
+            self._active_managers[user_id].set_mode(FormManagerModes.ESTABLISHMENT)
+        else:
+            self._active_managers[user_id].set_mode(FormManagerModes.FILLING)
+
+        return LuthorStates.BUILDING_SUBMISSION
+
+    def on_building_submission(self, bot, update):
         user_id = update.message.from_user.id
         manager = self._active_managers[user_id]
         return_val = manager.handle_update(update)
@@ -118,7 +146,9 @@ class Luthor:
 
 if __name__ == "__main__":
     with open("resources/auth.json") as f:
-        token = json.load(f)["token"]
+        auth_data = json.load(f)
+        # token = auth_data["token"]
+        token = auth_data["testing_token"]
 
     updater = Updater(token)
     xl_engine = ExcelEngine()
