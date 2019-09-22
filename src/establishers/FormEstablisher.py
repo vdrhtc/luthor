@@ -2,36 +2,26 @@
 # Abstract base class for establishing needed forms in a conversation with the user
 from enum import Enum, auto
 
+from src.StateMachine import StateMachine
 
-class EstablishmentStages(Enum):
+
+class States(Enum):
     INIT = auto()
-    ESTABLISH_RAW = auto()
     ESTABLISH = auto()
     END = auto()
 
-class FormEstablisher:
+class FormEstablisher(StateMachine):
 
     def __init__(self, user_id):
         self._user_id = user_id
-        self._behaviours = {EstablishmentStages.INIT: self._handle_init,
-                            EstablishmentStages.ESTABLISH_RAW: self._handle_establish_raw,
-                            EstablishmentStages.ESTABLISH: self._handle_establish}
-        self._state = EstablishmentStages.INIT
-        self._mode = None
+        self._behaviours = {
+            States.INIT: self._handle_init,
+            States.ESTABLISH: self._handle_establish}
+        self._state = States.INIT
 
         self._schema = {}
 
-    def handle_update(self, update):
-        return self._behaviours[self._state](update)
-
-    def set_mode(self, mode: EstablishmentStages):
-        self._mode = mode
-
     def _handle_init(self, update):
-        self._state = self._mode
-        return self.handle_update()
-
-    def _handle_establish_raw(self, update):
         pass
 
     def _handle_establish(self, update):

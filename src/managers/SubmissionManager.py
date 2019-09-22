@@ -5,7 +5,8 @@ from telegram import ReplyKeyboardMarkup
 from telegram.ext import ConversationHandler
 
 from src.ConstantsManager import ConstantsManager
-from src.establishers.FormEstablisher import FormEstablisher, EstablishmentStages
+from src.StateMachine import StateMachine
+from src.establishers.FormEstablisher import FormEstablisher, States
 
 
 class SubmissionStages(Enum):
@@ -18,7 +19,7 @@ class SubmissionStages(Enum):
 
 # Abstract class for general management of the user's submission
 
-class SubmissionManager:
+class SubmissionManager(StateMachine):
 
     def __init__(self, submission_id, user_id, xl_engine):
         self._form_id = submission_id
@@ -26,14 +27,14 @@ class SubmissionManager:
         self._xl_engine = xl_engine
         self._cm = ConstantsManager(subcategory="form_manager")
 
-        with open("resources/form_db.json") as f:
-            self._schema = json.load(f)[submission_id]["schema"]
+        # with open("resources/form_db.json") as f:
+        #     self._schema = json.load(f)[submission_id]["schema"]
 
-        self._collected_info = self._init_collected_info()
+        # self._collected_info = self._init_collected_info()
 
-        self._behaviours = {SubmissionStages.INIT: self._handle_enter,
+        self._behaviours = {SubmissionStages.INIT: self._handle_init,
                             SubmissionStages.Q_FILL_OR_ESTABLISH: self._handle_fill_or_establish,
-                            SubmissionStages.ESTABLISHMENT: self._handle_start_edit,  # must be overridden
+                            SubmissionStages.ESTABLISHMENT: self._handle_establishment,  # must be overridden
                             SubmissionStages.FILLING: self._handle_filling,
                             SubmissionStages.CLEAR: self._handle_clear,
                             SubmissionStages.EXIT: self._handle_exit}
@@ -55,11 +56,7 @@ class SubmissionManager:
             collected_info[sheet_id] = sheet
         return collected_info
 
-    def handle_update(self, update):
-        return self._behaviours[self._mode][self._state](update)
-
-    def _handle_enter(self, update):
-
+    def _handle_init(self, update):
         reply_keyboard = [[self._cm.get_string("help_submit")],
                           [self._cm.get_string("help_fill")]]
 
@@ -70,16 +67,7 @@ class SubmissionManager:
         self._state = SubmissionStages.Q_FILL_OR_ESTABLISH
 
     def _handle_fill_or_establish(self, update):
-        user_choice = update.message.text
-
-        if user_choice == self._cm.get_string("help_submit"):
-            self._establisher.set_mode(EstablishmentStages.ESTABLISH)
-        elif user_choice == self._cm.get_string("help_fill"):
-            self._establisher.set_mode(EstablishmentStages.ESTABLISH_RAW)
-
-        self._establisher.handle_update(update)
-
-        self._state = SubmissionStages.ESTABLISHMENT
+        pass
 
     def _handle_establishment(self, update):
         schema = self._establisher.handle_update(update)
