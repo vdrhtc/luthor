@@ -19,14 +19,14 @@ class _Changes(Enum):
     SHARE_CAPITAL = auto()
     PARTICIPANTS_ONLY = auto()
     DIRECTOR = auto()
-    ERGUL_ERRORS = auto()
+    EGRUL_ERRORS = auto()
 
 
-class ErgulDirectEstablisher(FormEstablisher):
+class EgrulDirectEstablisher(FormEstablisher):
 
     def __init__(self):
         self._behaviours = {}
-        self._ergul_changes = []
+        self._egrul_changes = []
         self._schema = {}
 
     def _handle_enter(self, update):

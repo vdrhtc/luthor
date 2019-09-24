@@ -12,11 +12,12 @@ class States(Enum):
 
 class FormEstablisher(StateMachine):
 
-    def __init__(self, user_id):
+    def __init__(self, bot, user_id):
+        self._bot = bot
         self._user_id = user_id
         self._behaviours = {
             States.INIT: self._handle_init,
-            States.ESTABLISH: self._handle_establish}
+            States.END: self._handle_end}
         self._state = States.INIT
 
         self._schema = {}
@@ -26,3 +27,6 @@ class FormEstablisher(StateMachine):
 
     def _handle_establish(self, update):
         pass
+
+    def _handle_end(self, update):
+        return self._schema

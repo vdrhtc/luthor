@@ -12,7 +12,7 @@ from src.excel.ExcelEngine import ExcelEngine
 
 import logging
 
-from src.managers.ergul.ErgulManager import ErgulManager
+from src.managers.egrul.EgrulManager import EgrulManager
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -27,14 +27,16 @@ class LuthorStates(Enum):  # User needs to make a submission (send a pack of doc
 
 class Luthor:
 
+    INSTANCE = None
+
     def __init__(self, xl_engine, updater):
         self._xl_engine = xl_engine
         self._updater = updater
         self._logger = LoggingServer.getInstance("luthor")
         self._cm = ConstantsManager(subcategory="luthor")
 
-        self._available_submission_classes = {"Изменения в ЕРГЮЛ": ErgulManager,
-                                              "Заявление на Шенген": ErgulManager}
+        self._available_submission_classes = {"Изменения в ЕГРЮЛ": EgrulManager,
+                                              "Заявление на Шенген": EgrulManager}
         self._submissions_regexp = "^(" + "|".join(self._available_submission_classes.keys()) + ")$"
 
         self.add_handlers()
@@ -51,9 +53,9 @@ class Luthor:
 
             states={
                 LuthorStates.CHOOSING_SUBMISSION: [
-                    RegexHandler(self._submissions_regexp, self.on_choosing_sumbission)],
+                    RegexHandler(self._submissions_regexp, self.on_choosing_submission)],
                 LuthorStates.BUILDING_SUBMISSION: [
-                    MessageHandler(Filters.text, self.on_building_submission),
+                    MessageHandler(Filters.text, self.on_building_submission_message),
                     CallbackQueryHandler(self.on_building_submission_callback)],
             },
 
@@ -67,7 +69,7 @@ class Luthor:
     def launch(self):
         self._updater.start_polling()
 
-    def on_start(self, bot, update):  # какая форма?
+    def on_start(self, bot, update):
 
         reply_keyboard = [[key for key in self._available_submission_classes.keys()]]
 
@@ -79,12 +81,14 @@ class Luthor:
 
         return LuthorStates.CHOOSING_SUBMISSION
 
-    def on_choosing_sumbission(self, bot, update):  #
+    def on_choosing_submission(self, bot, update):  #
 
         submission_id = update.message.text
         user_id = update.message.from_user.id
         if self._submission_managers[user_id][submission_id] is None:
-            manager = self._available_submission_classes[submission_id](user_id, self._xl_engine)
+            manager = self._available_submission_classes[submission_id](self._updater.bot,
+                                                                        user_id,
+                                                                        self._xl_engine)
             self._submission_managers[user_id][submission_id] = manager
         else:
             manager = self._submission_managers[user_id][submission_id]
@@ -95,36 +99,34 @@ class Luthor:
         return LuthorStates.BUILDING_SUBMISSION
 
 
-    def on_building_submission(self, bot, update):
+    def on_building_submission_message(self, bot, update):
         user_id = update.message.from_user.id
-        manager = self._active_managers[user_id]
-        return_val = manager.handle_update(update)
-        if return_val is None:
-            return LuthorStates.BUILDING_SUBMISSION
-        elif return_val is ConversationHandler.END:
-            return ConversationHandler.END
-        elif isinstance(return_val, str):
-            update.message.reply_text(return_val)
-            return ConversationHandler.END
-        else:
-            update.message.reply_text("Ваш документ:")
-            self._updater.bot.send_document(update.message.from_user.id, return_val,
-                                            filename=manager.get_form_id() + ".xls")
-            update.message.reply_text("И еще ты пидор.")
-            return ConversationHandler.END
+        return self._on_building_submission(user_id, update)
 
     def on_building_submission_callback(self, bot, update):
         user_id = update._effective_user.id
+        return self._on_building_submission(user_id, update)
+
+    def _on_building_submission(self, user_id, update):
         manager = self._active_managers[user_id]
-        manager.handle_update(update)
-        return LuthorStates.BUILDING_SUBMISSION
+        result = manager.handle_update(update)
+        if result is None:
+            return LuthorStates.BUILDING_SUBMISSION
+        elif isinstance(result, str):
+            self._bot.send_message(user_id, result)
+            return ConversationHandler.END
+        else:
+            self._updater.bot.send_message(user_id, "Ваши документы:")
+            self._updater.bot.send_document(user_id, result,
+                                            filename=manager.get_form_id() + ".xls")
+            return ConversationHandler.END
 
     def on_cancel(self, bot, update):
         update.message.reply_text("Cancelled")
         return ConversationHandler.END
 
     def on_error(self, bot, update, error):
-        print(error)
+        print(type(error), error)
 
 
 if __name__ == "__main__":
